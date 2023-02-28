@@ -47,3 +47,13 @@ elr_el3是控制异常返回（即eret？）后执行地址，SPSR_ELX_DAIF | SP
 
 若内核定义了全局或静态变量，会导致其初始值可能不为0，进而导致错误
 
+## 练习题 6
+
+> 在 `kernel/arch/aarch64/boot/raspi3/peripherals/uart.c` 中 `LAB 1 TODO 3` 处实现通过 UART 输出字符串的逻辑。
+
+```
+int i = 0;
+while (str[i] != '\0'){
+        early_uart_send(str[i++]);
+}
+```
