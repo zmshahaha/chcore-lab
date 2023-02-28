@@ -57,3 +57,14 @@ while (str[i] != '\0'){
         early_uart_send(str[i++]);
 }
 ```
+
+## 练习题 7
+
+> 在 `kernel/arch/aarch64/boot/raspi3/init/tools.S` 中 `LAB 1 TODO 4` 处填写一行汇编代码，以启用 MMU。
+
+```
+orr x8, x8, #SCTLR_EL1_M
+```
+SCTLR_EL1_M等与寄存器格式相关的宏定义在 `kernel/include/arch/aarch64/arch/machine/register.h` 中
+
+# 此时lab1测试满分
