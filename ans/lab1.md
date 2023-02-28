@@ -9,3 +9,16 @@
 > 在 `arm64_elX_to_el1` 函数的 `LAB 1 TODO 1` 处填写一行汇编代码，获取 CPU 当前异常级别。
 
 `mrs x9, CurrentEL`
+
+## 练习题 3
+
+> 在 `arm64_elX_to_el1` 函数的 `LAB 1 TODO 2` 处填写大约 4 行汇编代码，设置从 EL3 跳转到 EL1 所需的 `elr_el3` 和 `spsr_el3` 寄存器值。具体地，我们需要在跳转到 EL1 时暂时屏蔽所有中断、并使用内核栈（`sp_el1` 寄存器指定的栈指针）。
+
+模仿124-127行得到
+```
+adr x9, .Ltarget
+msr elr_el3, x9
+mov x9, SPSR_ELX_DAIF | SPSR_ELX_EL1H
+msr spsr_el3, x9
+```
+elr_el3是控制异常返回（即eret？）后执行地址，SPSR_ELX_DAIF | SPSR_ELX_EL1H见代码新增注释

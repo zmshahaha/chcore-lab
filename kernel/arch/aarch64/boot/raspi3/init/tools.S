@@ -49,7 +49,9 @@
 #define SCR_EL3_NS              (1 << 0)
 #define SCR_EL3_RW              (1 << 10)
 
+// DAIF bits in spsr_elx, related to interrupt
 #define SPSR_ELX_DAIF           (0b1111 << 6)
+// select el1 stack pointer
 #define SPSR_ELX_EL1H           (0b0101)
 
 #define ICH_HCR_EL2             S3_4_C12_C11_0
@@ -75,7 +77,10 @@ BEGIN_FUNC(arm64_elX_to_el1)
 
 	// Set the return address and exception level.
 	/* LAB 1 TODO 2 BEGIN */
-
+	adr x9, .Ltarget
+	msr elr_el3, x9
+	mov x9, SPSR_ELX_DAIF | SPSR_ELX_EL1H
+	msr spsr_el3, x9
 	/* LAB 1 TODO 2 END */
 
 .Lin_el2:
