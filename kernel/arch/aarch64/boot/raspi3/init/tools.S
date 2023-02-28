@@ -57,7 +57,7 @@
 
 BEGIN_FUNC(arm64_elX_to_el1)
 	/* LAB 1 TODO 1 BEGIN */
-
+	mrs x9, CurrentEL
 	/* LAB 1 TODO 1 END */
 
 	// Check the current exception level.
