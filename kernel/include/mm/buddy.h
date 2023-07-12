@@ -76,7 +76,7 @@ extern int physmem_map_num;
 void init_buddy(struct phys_mem_pool *zone, struct page *start_page,
                 vaddr_t start_addr, u64 page_num);
 
-struct page *buddy_get_pages(struct phys_mem_pool *, u64 order);
+struct page *buddy_get_pages(struct phys_mem_pool *, int order);
 void buddy_free_pages(struct phys_mem_pool *, struct page *page);
 
 void *page_to_virt(struct page *page);

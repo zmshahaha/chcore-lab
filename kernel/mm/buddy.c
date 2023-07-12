@@ -102,7 +102,7 @@ static inline void insert_chunk_to_pool(struct phys_mem_pool *pool, struct page 
  * order is order to alloc, page is to-be-alloc free chunk's first page.
  * this func will alloc the free chunk, and change metadata(page metadata and pool metadata) correctly.
  */ 
-static struct page *split_page(struct phys_mem_pool *pool, u64 order,
+static void split_page(struct phys_mem_pool *pool, int order,
                                struct page *page)
 {
         /* LAB 2 TODO 2 BEGIN */
@@ -113,7 +113,7 @@ static struct page *split_page(struct phys_mem_pool *pool, u64 order,
         BUG_ON(page->allocated || page->order < order || page->node.next == NULL);
         
         // change pool metadata and pages' metadata's node
-        u64 prev_order = page->order;
+        int prev_order = page->order;
         struct page *free_chunk = NULL;
         // alloced chunk related
         remove_chunk_from_pool(pool, page);
@@ -155,14 +155,14 @@ static struct page *split_page(struct phys_mem_pool *pool, u64 order,
         /* LAB 2 TODO 2 END */
 }
 
-struct page *buddy_get_pages(struct phys_mem_pool *pool, u64 order)
+struct page *buddy_get_pages(struct phys_mem_pool *pool, int order)
 {
         /* LAB 2 TODO 2 BEGIN */
         /*
          * Hint: Find a chunk that satisfies the order requirement
          * in the free lists, then split it if necessary.
          */
-        u64 alloc_order = order;
+        int alloc_order = order;
         struct page* alloc_page = NULL;
         
         while (alloc_order <= BUDDY_MAX_ORDER - 1)
@@ -186,7 +186,7 @@ static struct page *merge_page(struct phys_mem_pool *pool, struct page *page)
          * Hint: Recursively merge current chunk with its buddy
          * if possible.
          */
-        u8 order = page->order;
+        int order = page->order;
         struct page *buddy = NULL;
         while(order < BUDDY_MAX_ORDER - 1){
                 buddy = get_buddy_chunk(pool, page);
@@ -306,7 +306,7 @@ void lab2_test_buddy(void)
         }
         {
                 lab_check(buddy_get_pages(pool, BUDDY_MAX_ORDER + 1) == NULL
-                                  && buddy_get_pages(pool, (u64)-1) == NULL,
+                                  && buddy_get_pages(pool, 10000) == NULL,
                           "Check invalid order");
         }
         {
