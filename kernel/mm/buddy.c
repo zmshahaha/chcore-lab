@@ -88,6 +88,16 @@ static struct page *get_buddy_chunk(struct phys_mem_pool *pool,
         return virt_to_page((void *)buddy_chunk_addr);
 }
 
+static inline void remove_chunk_from_pool(struct phys_mem_pool *pool, struct page *chunk){
+        list_del(&(chunk->node));
+        pool->free_lists[chunk->order].nr_free--;
+}
+
+static inline void insert_chunk_to_pool(struct phys_mem_pool *pool, struct page *chunk){
+        list_add(&(chunk->node), &(pool->free_lists[chunk->order].free_list));
+        pool->free_lists[chunk->order].nr_free++;
+}
+
 /*
  * order is order to alloc, page is to-be-alloc free chunk's first page.
  * this func will alloc the free chunk, and change metadata(page metadata and pool metadata) correctly.
@@ -106,17 +116,16 @@ static struct page *split_page(struct phys_mem_pool *pool, u64 order,
         u64 prev_order = page->order;
         struct page *free_chunk = NULL;
         // alloced chunk related
-        pool->free_lists[page->order].nr_free--;
-        list_del(&(page->node));
+        remove_chunk_from_pool(pool, page);
         // other chunk related
         while ((--page->order) >= order)
         {
-                pool->free_lists[page->order].nr_free++;
                 free_chunk = get_buddy_chunk(pool, page);
-
                 // the buddy chunk should all in prev chunks
                 BUG_ON(free_chunk == NULL);
-                list_add(&(free_chunk->node), &(pool->free_lists[page->order].free_list));
+
+                free_chunk->order = page->order;
+                insert_chunk_to_pool(pool, free_chunk);
         }
         
         // change pages' metadata
@@ -181,12 +190,13 @@ static struct page *merge_page(struct phys_mem_pool *pool, struct page *page)
                 buddy = get_buddy_chunk(pool, page);
                 if(buddy != NULL && buddy->allocated == 0){
                         // merging buddy change list's metadata
-                        list_del(&(buddy->node));
-                        pool->free_lists[page->order].nr_free--;
+                        BUG_ON(buddy->order != page->order);
+                        remove_chunk_from_pool(pool, buddy);
+
                         page = page < buddy ? page : buddy;
                         page->order = (++order);
                 }else{
-                        return page;
+                        break;
                 }
         }
         return page;

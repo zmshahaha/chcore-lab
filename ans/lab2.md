@@ -57,3 +57,5 @@ page metadata中非chunk首page的node为null(是否必要？？)
 ```void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)```中page必须是获取page所返回的
 
 实现方式均以结果为导向，先思考分配回收后元数据状态，再进行设置,注意有些函数会返回NULL需要检查
+
+部分联系紧密操作结合为函数，减少出错，如代码中对pool的改动
