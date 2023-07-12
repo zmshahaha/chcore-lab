@@ -88,6 +88,10 @@ static struct page *get_buddy_chunk(struct phys_mem_pool *pool,
         return virt_to_page((void *)buddy_chunk_addr);
 }
 
+/*
+ * order is order to alloc, page is to-be-alloc free chunk's first page.
+ * this func will alloc the free chunk, and change metadata(page metadata and pool metadata) correctly.
+ */ 
 static struct page *split_page(struct phys_mem_pool *pool, u64 order,
                                struct page *page)
 {
@@ -96,7 +100,47 @@ static struct page *split_page(struct phys_mem_pool *pool, u64 order,
          * Hint: Recursively put the buddy of current chunk into
          * a suitable free list.
          */
+        BUG_ON(page->allocated || page->order < order || page->node.next == NULL);
+        
+        // change pool metadata and pages' metadata's node
+        u64 prev_order = page->order;
+        struct page *free_chunk = NULL;
+        // alloced chunk related
+        pool->free_lists[page->order].nr_free--;
+        list_del(&(page->node));
+        // other chunk related
+        while ((--page->order) >= order)
+        {
+                pool->free_lists[page->order].nr_free++;
+                free_chunk = get_buddy_chunk(pool, page);
 
+                // the buddy chunk should all in prev chunks
+                BUG_ON(free_chunk == NULL);
+                list_add(&(free_chunk->node), &(pool->free_lists[page->order].free_list));
+        }
+        
+        // change pages' metadata
+        u64 page_idx = 0;
+        struct page *iter = page;
+        // alloced chunk related
+        for(; page_idx < (1<<order); iter++, page_idx++){
+                iter->allocated = 1;
+                iter->order = order;
+        }
+        // other chunk related
+        int count = 0, number = 0;
+        for(; page_idx < (1<<prev_order); iter++, page_idx++){
+                BUG_ON(iter->allocated == 1);
+                count = 0;
+                number = page_idx;
+                BUG_ON(number <= 0);
+                // order is bits-1
+                while (number > 1) {
+                        count++;
+                        number >>= 1;
+                }
+                iter->order = count;
+        }
         /* LAB 2 TODO 2 END */
 }
 
@@ -107,7 +151,20 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, u64 order)
          * Hint: Find a chunk that satisfies the order requirement
          * in the free lists, then split it if necessary.
          */
+        u64 alloc_order = order;
+        struct page* alloc_page = NULL;
+        
+        while (alloc_order <= BUDDY_MAX_ORDER - 1)
+        {
+                if(pool->free_lists[alloc_order].nr_free){
+                        alloc_page = (struct page*)pool->free_lists[alloc_order].free_list.next;
+                        split_page(pool, order, alloc_page);
+                        return alloc_page;
+                }
+                alloc_order++;
+        }
 
+        return alloc_page;
         /* LAB 2 TODO 2 END */
 }
 
@@ -118,7 +175,21 @@ static struct page *merge_page(struct phys_mem_pool *pool, struct page *page)
          * Hint: Recursively merge current chunk with its buddy
          * if possible.
          */
-
+        u8 order = page->order;
+        struct page *buddy = NULL;
+        while(order < BUDDY_MAX_ORDER - 1){
+                buddy = get_buddy_chunk(pool, page);
+                if(buddy != NULL && buddy->allocated == 0){
+                        // merging buddy change list's metadata
+                        list_del(&(buddy->node));
+                        pool->free_lists[page->order].nr_free--;
+                        page = page < buddy ? page : buddy;
+                        page->order = (++order);
+                }else{
+                        return page;
+                }
+        }
+        return page;
         /* LAB 2 TODO 2 END */
 }
 
@@ -129,7 +200,27 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
          * Hint: Merge the chunk with its buddy and put it into
          * a suitable free list.
          */
+        // double free
+        if(page == NULL)
+                return;
 
+        BUG_ON(page->allocated == 0);
+        struct page *merged_chunk = merge_page(pool,page);
+
+        // change pool metadata and pages' metadata's node
+        pool->free_lists[merged_chunk->order].nr_free++;
+        list_add(&(merged_chunk->node), &(pool->free_lists[merged_chunk->order].free_list));
+
+        // change pages' metadata
+        u64 page_idx = 0;
+        u64 page_num = 1<<(merged_chunk->order);
+        struct page *iter = merged_chunk;
+        while (page_idx < page_num)
+        {
+                iter->allocated = 0;
+                iter->order = merged_chunk->order;
+                iter++;page_idx++;
+        }
         /* LAB 2 TODO 2 END */
 }
 
