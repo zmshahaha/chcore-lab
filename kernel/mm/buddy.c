@@ -118,14 +118,16 @@ static struct page *split_page(struct phys_mem_pool *pool, u64 order,
         // alloced chunk related
         remove_chunk_from_pool(pool, page);
         // other chunk related
-        while ((--page->order) >= order)
-        {
-                free_chunk = get_buddy_chunk(pool, page);
-                // the buddy chunk should all in prev chunks
-                BUG_ON(free_chunk == NULL);
+        if(page->order > order){
+                while ((--page->order) >= order)
+                {
+                        free_chunk = get_buddy_chunk(pool, page);
+                        // the buddy chunk should all in prev chunks
+                        BUG_ON(free_chunk == NULL);
 
-                free_chunk->order = page->order;
-                insert_chunk_to_pool(pool, free_chunk);
+                        free_chunk->order = page->order;
+                        insert_chunk_to_pool(pool, free_chunk);
+                }
         }
         
         // change pages' metadata
