@@ -59,3 +59,11 @@ page metadata中非chunk首page的node为null(是否必要？？)
 实现方式均以结果为导向，先思考分配回收后元数据状态，再进行设置,注意有些函数会返回NULL需要检查
 
 部分联系紧密操作结合为函数，减少出错，如代码中对pool的改动
+
+## 第三部分：页表管理
+
+> 练习题 6：完成 `kernel/arch/aarch64/mm/page_table.c` 中的 `get_next_ptp`、 `query_in_pgtbl`、`map_range_in_pgtbl`、`unmap_range_in_pgtbl` 函数中的 `LAB 2 TODO 3` 部分，后三个函数分别实现页表查询、映射、取消映射操作，其中映射和取消映射以 4KB 页为粒度。
+
+没啥好说的，一步一步映射就行，注意一些比特的设置。
+
+内核使用的是内核页表，当前设置的是进程页表
