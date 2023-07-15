@@ -190,9 +190,9 @@ static struct page *merge_page(struct phys_mem_pool *pool, struct page *page)
         struct page *buddy = NULL;
         while(order < BUDDY_MAX_ORDER - 1){
                 buddy = get_buddy_chunk(pool, page);
-                if(buddy != NULL && buddy->allocated == 0){
+                // buddy's order can smaller than page's order
+                if(buddy != NULL && buddy->allocated == 0 && buddy->order == page->order){
                         // merging buddy change list's metadata
-                        BUG_ON(buddy->order != page->order);
                         remove_chunk_from_pool(pool, buddy);
 
                         page = page < buddy ? page : buddy;

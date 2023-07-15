@@ -239,17 +239,19 @@ int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
                         switch (level)
                         {
                         case 1:
-                                *pa = pte->l1_block.pfn << L1_INDEX_SHIFT;
-                                break;
+                                *pa = pte->l1_block.pfn << L1_INDEX_SHIFT + GET_VA_OFFSET_L1(va);
+                                return 0;
                         case 2:
-                                *pa = pte->l2_block.pfn << L2_INDEX_SHIFT;
-                                break;
-                        case 3:
-                                *pa = pte->l3_page.pfn << L3_INDEX_SHIFT;
-                                break;
+                                *pa = pte->l2_block.pfn << L2_INDEX_SHIFT + GET_VA_OFFSET_L2(va);
+                                return 0;
                         default:
                                 BUG("invalid block level");
                         }
+                }
+                if(ret == NORMAL_PTP && level == 3){
+                        *entry = pte;
+                        // plus is prior to shift!!!!!!!
+                        *pa = (pte->l3_page.pfn << L3_INDEX_SHIFT) + GET_VA_OFFSET_L3(va);
                         return 0;
                 }
         }
@@ -273,11 +275,11 @@ int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
         pa -= GET_VA_OFFSET_L3(pa);
         len += GET_VA_OFFSET_L3(va);
 
-        ptp_t *cur_ptp = pgtbl, *next_ptp;
+        ptp_t *cur_ptp, *next_ptp;
         pte_t *pte;
-        int ret, level = 0;
+        int ret, level;
         for(; len > 0; len -= PAGE_SIZE, va += PAGE_SIZE, pa += PAGE_SIZE){
-                for(; level < 3; ++level, cur_ptp = next_ptp){
+                for(cur_ptp = pgtbl, level = 0; level <= 3; ++level, cur_ptp = next_ptp){
                         ret = get_next_ptp(cur_ptp, level, va, &next_ptp, &pte, true);
                         BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
                 }
@@ -303,11 +305,11 @@ int unmap_range_in_pgtbl(void *pgtbl, vaddr_t va, size_t len)
         va -= GET_VA_OFFSET_L3(va);
         len += GET_VA_OFFSET_L3(va);
 
-        ptp_t *cur_ptp = pgtbl, *next_ptp;
+        ptp_t *cur_ptp, *next_ptp;
         pte_t *pte;
-        int ret, level = 0;
+        int ret, level;
         for(; len > 0; len -= PAGE_SIZE, va += PAGE_SIZE){
-                for(; level < 3; ++level, cur_ptp = next_ptp){
+                for(cur_ptp = pgtbl, level = 0; level <= 3; ++level, cur_ptp = next_ptp){
                         ret = get_next_ptp(cur_ptp, level, va, &next_ptp, &pte, true);
                         BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
                 }
