@@ -73,6 +73,9 @@
 #define GET_VA_OFFSET_L2(va) (va & L2_BLOCK_MASK)
 #define GET_VA_OFFSET_L3(va) (va & L3_PAGE_MASK)
 
+#define L2_BLOCK_SIZE (1<<L2_INDEX_SHIFT)
+#define L1_BLOCK_SIZE (1<<L1_INDEX_SHIFT)
+
 /* table format */
 // clang-format off
 typedef union {

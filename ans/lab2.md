@@ -73,3 +73,7 @@ page metadata中非chunk首page的node为null(是否必要？？)
 注意map中的pa已经假定为分配好了，不要用get_pages分配新的页
 
 > 练习题 7：完成 `kernel/arch/aarch64/mm/page_table.c` 中的 `map_range_in_pgtbl_huge` 和 `unmap_range_in_pgtbl_huge` 函数中的 `LAB 2 TODO 4` 部分，实现大页（2MB、1GB 页）支持。
+
+分配l3页表至l2对齐->分配l2页表至l1对齐->分配l1页表->分配剩余l2及l3页表
+
+注意union中位域与普通类型和有无符号之间比较(尤其无符号与0比较永远不小于)及运算的类型转换，容易出bug

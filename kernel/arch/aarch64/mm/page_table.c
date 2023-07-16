@@ -239,10 +239,11 @@ int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
                         switch (level)
                         {
                         case 1:
-                                *pa = pte->l1_block.pfn << L1_INDEX_SHIFT + GET_VA_OFFSET_L1(va);
+                                *pa = (((u64)pte->l1_block.pfn) << L1_INDEX_SHIFT) + GET_VA_OFFSET_L1(va);
+
                                 return 0;
                         case 2:
-                                *pa = pte->l2_block.pfn << L2_INDEX_SHIFT + GET_VA_OFFSET_L2(va);
+                                *pa = (((u64)pte->l2_block.pfn) << L2_INDEX_SHIFT) + GET_VA_OFFSET_L2(va);
                                 return 0;
                         default:
                                 BUG("invalid block level");
@@ -255,12 +256,12 @@ int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
                         return 0;
                 }
         }
+        BUG("error");
+        return -ENOMAPPING;
         /* LAB 2 TODO 3 END */
-
 }
 
 static void map_one_lx_page(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flags, u32 level){
-        BUG_ON(GET_VA_OFFSET_L3(pa) != 0);
         ptp_t *cur_ptp = pgtbl,*next_ptp;
         pte_t *pte;
         u32 index, ret, cur_level = 0;
@@ -269,15 +270,15 @@ static void map_one_lx_page(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flag
         {
         case 1:
                 index = GET_L1_INDEX(va);
-                BUG_ON(GET_VA_OFFSET_L1(va) != 0);
+                BUG_ON(GET_VA_OFFSET_L1(va) != 0 || GET_VA_OFFSET_L1(pa) != 0);
                 break;
         case 2:
                 index = GET_L2_INDEX(va);
-                BUG_ON(GET_VA_OFFSET_L2(va) != 0);
+                BUG_ON(GET_VA_OFFSET_L2(va) != 0 || GET_VA_OFFSET_L2(pa) != 0);
                 break;
         case 3:
                 index = GET_L3_INDEX(va);
-                BUG_ON(GET_VA_OFFSET_L3(va) != 0);
+                BUG_ON(GET_VA_OFFSET_L3(va) != 0 || GET_VA_OFFSET_L3(pa) != 0);
                 break;
         default:
                 BUG("invalid level");
@@ -296,12 +297,24 @@ static void map_one_lx_page(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flag
         else
                 entry->table.is_table = 0;
         entry->table.is_valid = 1;
-        entry->table.next_table_addr = pa >> PAGE_SHIFT;
+        switch (level)
+        {
+        case 1:
+                entry->l1_block.pfn = pa >> L1_INDEX_SHIFT;
+                break;
+        case 2:
+                entry->l2_block.pfn = pa >> L2_INDEX_SHIFT;
+                break;
+        case 3:
+                entry->l3_page.pfn = pa >> L3_INDEX_SHIFT;
+                break;
+        default:
+                BUG("invalid level");
+        }
         set_pte_flags(entry, flags, USER_PTE);
-        return 0;
 }
 
-static void unmap_one_lx_page(void *pgtbl, vaddr_t va, int level){
+static void unmap_one_lx_page(void *pgtbl, vaddr_t va, u32 level){
         ptp_t *cur_ptp = pgtbl,*next_ptp;
         pte_t *pte;
         u32 index, ret, cur_level = 0;
@@ -325,13 +338,12 @@ static void unmap_one_lx_page(void *pgtbl, vaddr_t va, int level){
         }
 
         for(; cur_level < level; ++cur_level, cur_ptp = next_ptp){
-                ret = get_next_ptp(cur_ptp, cur_level, va, &next_ptp, &pte, true);
+                ret = get_next_ptp(cur_ptp, cur_level, va, &next_ptp, &pte, false);
                 BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
         }
 
         pte_t *entry = &(next_ptp->ent[index]);
         entry->pte = 0;
-        return 0;
 }
 
 int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
@@ -350,7 +362,7 @@ int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
         pa -= GET_VA_OFFSET_L3(pa);
         len += GET_VA_OFFSET_L3(va);
 
-        for(; len > 0; len -= PAGE_SIZE, va += PAGE_SIZE, pa += PAGE_SIZE){
+        for(; (s64)len > 0; len -= PAGE_SIZE, va += PAGE_SIZE, pa += PAGE_SIZE){
                 map_one_lx_page(pgtbl, va, pa, flags, 3);
         }
         return 0;
@@ -368,7 +380,7 @@ int unmap_range_in_pgtbl(void *pgtbl, vaddr_t va, size_t len)
         va -= GET_VA_OFFSET_L3(va);
         len += GET_VA_OFFSET_L3(va);
 
-        for(; len > 0; len -= PAGE_SIZE, va += PAGE_SIZE){
+        for(; (s64)len > 0; len -= PAGE_SIZE, va += PAGE_SIZE){
                 unmap_one_lx_page(pgtbl, va, 3);
         }
         return 0;
@@ -379,14 +391,92 @@ int map_range_in_pgtbl_huge(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
                             vmr_prop_t flags)
 {
         /* LAB 2 TODO 4 BEGIN */
+        BUG_ON(GET_VA_OFFSET_L3(va) != GET_VA_OFFSET_L3(pa));
+        va -= GET_VA_OFFSET_L3(va);
+        pa -= GET_VA_OFFSET_L3(pa);
+        len += GET_VA_OFFSET_L3(va);
 
+        // alloc order: 32123
+
+        // align to l2
+        for(; (s64)len > 0 && GET_VA_OFFSET_L2(va) != 0; len -= PAGE_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 3);
+                va += PAGE_SIZE;
+                pa += PAGE_SIZE;
+        }
+
+        // align to l1
+        // if len remaining is too small, don't alloc large page
+        for(; (s64)len > L2_BLOCK_SIZE/2 && GET_VA_OFFSET_L1(va) != 0; len -= L2_BLOCK_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 2);
+                va += L2_BLOCK_SIZE; 
+                pa += L2_BLOCK_SIZE;
+        }
+
+        // alloc l1
+        for(; (s64)len > L1_BLOCK_SIZE/2; len -= L1_BLOCK_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 1);
+                va += L1_BLOCK_SIZE; 
+                pa += L1_BLOCK_SIZE;
+        }
+
+        // remaining l2
+        for(; (s64)len > L2_BLOCK_SIZE/2; len -= L2_BLOCK_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 2);
+                va += L2_BLOCK_SIZE; 
+                pa += L2_BLOCK_SIZE;
+        }
+
+        // remaining l3
+        for(; (s64)len > 0; len -= PAGE_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 3);
+                va += PAGE_SIZE; 
+                pa += PAGE_SIZE;
+        }
+        return 0;
         /* LAB 2 TODO 4 END */
 }
 
 int unmap_range_in_pgtbl_huge(void *pgtbl, vaddr_t va, size_t len)
 {
         /* LAB 2 TODO 4 BEGIN */
+        BUG_ON(GET_VA_OFFSET_L3(va));
+        va -= GET_VA_OFFSET_L3(va);
+        len += GET_VA_OFFSET_L3(va);
 
+        // alloc order: 32123
+
+        // align to l2
+        for(; (s64)len > 0 && GET_VA_OFFSET_L2(va) != 0; len -= PAGE_SIZE){
+                unmap_one_lx_page(pgtbl, va, 3);
+                va += PAGE_SIZE;
+        }
+
+        // align to l1
+        // if len remaining is too small, don't alloc large page
+        for(; (s64)len > L2_BLOCK_SIZE/2 && GET_VA_OFFSET_L1(va) != 0; len -= L2_BLOCK_SIZE){
+                unmap_one_lx_page(pgtbl, va, 2);
+                va += L2_BLOCK_SIZE; 
+        }
+
+        // alloc l1
+        for(; (s64)len > L1_BLOCK_SIZE/2; len -= L1_BLOCK_SIZE){
+                unmap_one_lx_page(pgtbl, va, 1);
+                va += L1_BLOCK_SIZE; 
+        }
+
+        // remaining l2
+        for(; (s64)len > L2_BLOCK_SIZE/2; len -= L2_BLOCK_SIZE){
+                unmap_one_lx_page(pgtbl, va, 2);
+                va += L2_BLOCK_SIZE; 
+        }
+
+        // remaining l3
+        for(; (s64)len > 0; len -= PAGE_SIZE){
+                unmap_one_lx_page(pgtbl, va, 3);
+                va += PAGE_SIZE; 
+        }
+        return 0;
         /* LAB 2 TODO 4 END */
 }
 
