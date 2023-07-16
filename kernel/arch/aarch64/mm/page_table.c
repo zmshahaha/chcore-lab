@@ -259,6 +259,81 @@ int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
 
 }
 
+static void map_one_lx_page(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flags, u32 level){
+        BUG_ON(GET_VA_OFFSET_L3(pa) != 0);
+        ptp_t *cur_ptp = pgtbl,*next_ptp;
+        pte_t *pte;
+        u32 index, ret, cur_level = 0;
+        
+        switch (level)
+        {
+        case 1:
+                index = GET_L1_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L1(va) != 0);
+                break;
+        case 2:
+                index = GET_L2_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L2(va) != 0);
+                break;
+        case 3:
+                index = GET_L3_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L3(va) != 0);
+                break;
+        default:
+                BUG("invalid level");
+        }
+
+        for(; cur_level < level; ++cur_level, cur_ptp = next_ptp){
+                ret = get_next_ptp(cur_ptp, cur_level, va, &next_ptp, &pte, true);
+                BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
+        }
+
+        pte_t *entry = &(next_ptp->ent[index]);
+
+        entry->pte = 0;
+        if(level == 3)
+                entry->l3_page.is_page = 1;
+        else
+                entry->table.is_table = 0;
+        entry->table.is_valid = 1;
+        entry->table.next_table_addr = pa >> PAGE_SHIFT;
+        set_pte_flags(entry, flags, USER_PTE);
+        return 0;
+}
+
+static void unmap_one_lx_page(void *pgtbl, vaddr_t va, int level){
+        ptp_t *cur_ptp = pgtbl,*next_ptp;
+        pte_t *pte;
+        u32 index, ret, cur_level = 0;
+        
+        switch (level)
+        {
+        case 1:
+                index = GET_L1_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L1(va) != 0);
+                break;
+        case 2:
+                index = GET_L2_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L2(va) != 0);
+                break;
+        case 3:
+                index = GET_L3_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L3(va) != 0);
+                break;
+        default:
+                BUG("invalid level");
+        }
+
+        for(; cur_level < level; ++cur_level, cur_ptp = next_ptp){
+                ret = get_next_ptp(cur_ptp, cur_level, va, &next_ptp, &pte, true);
+                BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
+        }
+
+        pte_t *entry = &(next_ptp->ent[index]);
+        entry->pte = 0;
+        return 0;
+}
+
 int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
                        vmr_prop_t flags)
 {
@@ -275,20 +350,8 @@ int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
         pa -= GET_VA_OFFSET_L3(pa);
         len += GET_VA_OFFSET_L3(va);
 
-        ptp_t *cur_ptp, *next_ptp;
-        pte_t *pte;
-        int ret, level;
         for(; len > 0; len -= PAGE_SIZE, va += PAGE_SIZE, pa += PAGE_SIZE){
-                for(cur_ptp = pgtbl, level = 0; level <= 3; ++level, cur_ptp = next_ptp){
-                        ret = get_next_ptp(cur_ptp, level, va, &next_ptp, &pte, true);
-                        BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
-                }
-                // reset pte
-                pte->pte = 0;
-                pte->l3_page.pfn = pa >> PAGE_SHIFT;
-                pte->l3_page.is_page = 1;
-                pte->l3_page.is_valid = 1;
-                set_pte_flags(pte, flags, USER_PTE);
+                map_one_lx_page(pgtbl, va, pa, flags, 3);
         }
         return 0;
         /* LAB 2 TODO 3 END */
@@ -305,16 +368,8 @@ int unmap_range_in_pgtbl(void *pgtbl, vaddr_t va, size_t len)
         va -= GET_VA_OFFSET_L3(va);
         len += GET_VA_OFFSET_L3(va);
 
-        ptp_t *cur_ptp, *next_ptp;
-        pte_t *pte;
-        int ret, level;
         for(; len > 0; len -= PAGE_SIZE, va += PAGE_SIZE){
-                for(cur_ptp = pgtbl, level = 0; level <= 3; ++level, cur_ptp = next_ptp){
-                        ret = get_next_ptp(cur_ptp, level, va, &next_ptp, &pte, true);
-                        BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
-                }
-                // reset pte
-                pte->pte = 0;
+                unmap_one_lx_page(pgtbl, va, 3);
         }
         return 0;
         /* LAB 2 TODO 3 END */

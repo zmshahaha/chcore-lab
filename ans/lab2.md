@@ -69,3 +69,7 @@ page metadata中非chunk首page的node为null(是否必要？？)
 内核使用的是内核页表，当前设置的是进程页表
 
 注意有些map多轮时每轮后返回原态，学到了加减优先级高于shift，所以1<<1+1=4
+
+注意map中的pa已经假定为分配好了，不要用get_pages分配新的页
+
+> 练习题 7：完成 `kernel/arch/aarch64/mm/page_table.c` 中的 `map_range_in_pgtbl_huge` 和 `unmap_range_in_pgtbl_huge` 函数中的 `LAB 2 TODO 4` 部分，实现大页（2MB、1GB 页）支持。
