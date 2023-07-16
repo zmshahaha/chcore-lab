@@ -44,6 +44,9 @@ static inline void list_del(struct list_head *node)
 {
         node->prev->next = node->next;
         node->next->prev = node->prev;
+        // is below necessary??
+        node->next = NULL;
+        node->prev = NULL;
 }
 
 static inline bool list_empty(struct list_head *head)

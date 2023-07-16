@@ -135,7 +135,20 @@ static int get_next_ptp(ptp_t *cur_ptp, u32 level, vaddr_t va, ptp_t **next_ptp,
                          * Hint: use get_pages to allocate a new page table page
                          *       set the attr `is_valid`, `is_table` and `next_table_addr` of new pte
                          */
-
+                        // new ptp can be a page or a page table page, but there mades no distinction
+                        new_ptp = get_pages(0);
+                        BUG_ON(new_ptp == NULL);
+                        // prevent error data of new_ptp
+                        memset((void *)new_ptp, 0, PAGE_SIZE);
+                        new_ptp_paddr = virt_to_phys(new_ptp);
+                        // clear pte first
+                        new_pte_val.pte = 0;
+                        // if pte is level3, this field is is_page
+                        // ignore huge page
+                        new_pte_val.table.is_table = 1;
+                        new_pte_val.table.is_valid = 1;
+                        new_pte_val.table.next_table_addr = new_ptp_paddr >> PAGE_SHIFT;
+                        entry->pte = new_pte_val.pte;
                         /* LAB 2 TODO 3 END */
                 }
         }
@@ -201,6 +214,7 @@ void free_page_table(void *pgtbl)
 
 /*
  * Translate a va to pa, and get its pte for the flags
+ * Attention: va and pa may not be page's beginning, so be careful of last bits
  */
 int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
 {
@@ -210,8 +224,126 @@ int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
          * return the pa and pte until a L0/L1 block or page, return
          * `-ENOMAPPING` if the va is not mapped.
          */
+        // don't define **next_ptp and **pte since they will be inited to NULL
+        ptp_t *cur_ptp = pgtbl, *next_ptp;
+        pte_t *pte;
+        int ret, level = 0;
+                
+        for(; level <= 3; level++, cur_ptp = next_ptp)
+        {
+                ret = get_next_ptp(cur_ptp, level, va, &next_ptp, &pte, false);
+                if(ret == -ENOMAPPING)
+                        return -ENOMAPPING;
+                if(ret == BLOCK_PTP){
+                        *entry = pte;
+                        switch (level)
+                        {
+                        case 1:
+                                *pa = (((u64)pte->l1_block.pfn) << L1_INDEX_SHIFT) + GET_VA_OFFSET_L1(va);
 
+                                return 0;
+                        case 2:
+                                *pa = (((u64)pte->l2_block.pfn) << L2_INDEX_SHIFT) + GET_VA_OFFSET_L2(va);
+                                return 0;
+                        default:
+                                BUG("invalid block level");
+                        }
+                }
+                if(ret == NORMAL_PTP && level == 3){
+                        *entry = pte;
+                        // plus is prior to shift!!!!!!!
+                        *pa = (pte->l3_page.pfn << L3_INDEX_SHIFT) + GET_VA_OFFSET_L3(va);
+                        return 0;
+                }
+        }
+        BUG("error");
+        return -ENOMAPPING;
         /* LAB 2 TODO 3 END */
+}
+
+static void map_one_lx_page(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flags, u32 level){
+        ptp_t *cur_ptp = pgtbl,*next_ptp;
+        pte_t *pte;
+        u32 index, ret, cur_level = 0;
+        
+        switch (level)
+        {
+        case 1:
+                index = GET_L1_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L1(va) != 0 || GET_VA_OFFSET_L1(pa) != 0);
+                break;
+        case 2:
+                index = GET_L2_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L2(va) != 0 || GET_VA_OFFSET_L2(pa) != 0);
+                break;
+        case 3:
+                index = GET_L3_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L3(va) != 0 || GET_VA_OFFSET_L3(pa) != 0);
+                break;
+        default:
+                BUG("invalid level");
+        }
+
+        for(; cur_level < level; ++cur_level, cur_ptp = next_ptp){
+                ret = get_next_ptp(cur_ptp, cur_level, va, &next_ptp, &pte, true);
+                BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
+        }
+
+        pte_t *entry = &(next_ptp->ent[index]);
+
+        entry->pte = 0;
+        if(level == 3)
+                entry->l3_page.is_page = 1;
+        else
+                entry->table.is_table = 0;
+        entry->table.is_valid = 1;
+        switch (level)
+        {
+        case 1:
+                entry->l1_block.pfn = pa >> L1_INDEX_SHIFT;
+                break;
+        case 2:
+                entry->l2_block.pfn = pa >> L2_INDEX_SHIFT;
+                break;
+        case 3:
+                entry->l3_page.pfn = pa >> L3_INDEX_SHIFT;
+                break;
+        default:
+                BUG("invalid level");
+        }
+        set_pte_flags(entry, flags, USER_PTE);
+}
+
+static void unmap_one_lx_page(void *pgtbl, vaddr_t va, u32 level){
+        ptp_t *cur_ptp = pgtbl,*next_ptp;
+        pte_t *pte;
+        u32 index, ret, cur_level = 0;
+        
+        switch (level)
+        {
+        case 1:
+                index = GET_L1_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L1(va) != 0);
+                break;
+        case 2:
+                index = GET_L2_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L2(va) != 0);
+                break;
+        case 3:
+                index = GET_L3_INDEX(va);
+                BUG_ON(GET_VA_OFFSET_L3(va) != 0);
+                break;
+        default:
+                BUG("invalid level");
+        }
+
+        for(; cur_level < level; ++cur_level, cur_ptp = next_ptp){
+                ret = get_next_ptp(cur_ptp, cur_level, va, &next_ptp, &pte, false);
+                BUG_ON(ret == -ENOMAPPING || ret == BLOCK_PTP);
+        }
+
+        pte_t *entry = &(next_ptp->ent[index]);
+        entry->pte = 0;
 }
 
 int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
@@ -224,7 +356,16 @@ int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
          * pte with the help of `set_pte_flags`. Iterate until all pages are
          * mapped.
          */
+        // adjust to page's beginning
+        BUG_ON(GET_VA_OFFSET_L3(va) != GET_VA_OFFSET_L3(pa));
+        va -= GET_VA_OFFSET_L3(va);
+        pa -= GET_VA_OFFSET_L3(pa);
+        len += GET_VA_OFFSET_L3(va);
 
+        for(; (s64)len > 0; len -= PAGE_SIZE, va += PAGE_SIZE, pa += PAGE_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 3);
+        }
+        return 0;
         /* LAB 2 TODO 3 END */
 }
 
@@ -236,7 +377,13 @@ int unmap_range_in_pgtbl(void *pgtbl, vaddr_t va, size_t len)
          * mark the final level pte as invalid. Iterate until all pages are
          * unmapped.
          */
+        va -= GET_VA_OFFSET_L3(va);
+        len += GET_VA_OFFSET_L3(va);
 
+        for(; (s64)len > 0; len -= PAGE_SIZE, va += PAGE_SIZE){
+                unmap_one_lx_page(pgtbl, va, 3);
+        }
+        return 0;
         /* LAB 2 TODO 3 END */
 }
 
@@ -244,14 +391,92 @@ int map_range_in_pgtbl_huge(void *pgtbl, vaddr_t va, paddr_t pa, size_t len,
                             vmr_prop_t flags)
 {
         /* LAB 2 TODO 4 BEGIN */
+        BUG_ON(GET_VA_OFFSET_L3(va) != GET_VA_OFFSET_L3(pa));
+        va -= GET_VA_OFFSET_L3(va);
+        pa -= GET_VA_OFFSET_L3(pa);
+        len += GET_VA_OFFSET_L3(va);
 
+        // alloc order: 32123
+
+        // align to l2
+        for(; (s64)len > 0 && GET_VA_OFFSET_L2(va) != 0; len -= PAGE_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 3);
+                va += PAGE_SIZE;
+                pa += PAGE_SIZE;
+        }
+
+        // align to l1
+        // if len remaining is too small, don't alloc large page
+        for(; (s64)len > L2_BLOCK_SIZE/2 && GET_VA_OFFSET_L1(va) != 0; len -= L2_BLOCK_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 2);
+                va += L2_BLOCK_SIZE; 
+                pa += L2_BLOCK_SIZE;
+        }
+
+        // alloc l1
+        for(; (s64)len > L1_BLOCK_SIZE/2; len -= L1_BLOCK_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 1);
+                va += L1_BLOCK_SIZE; 
+                pa += L1_BLOCK_SIZE;
+        }
+
+        // remaining l2
+        for(; (s64)len > L2_BLOCK_SIZE/2; len -= L2_BLOCK_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 2);
+                va += L2_BLOCK_SIZE; 
+                pa += L2_BLOCK_SIZE;
+        }
+
+        // remaining l3
+        for(; (s64)len > 0; len -= PAGE_SIZE){
+                map_one_lx_page(pgtbl, va, pa, flags, 3);
+                va += PAGE_SIZE; 
+                pa += PAGE_SIZE;
+        }
+        return 0;
         /* LAB 2 TODO 4 END */
 }
 
 int unmap_range_in_pgtbl_huge(void *pgtbl, vaddr_t va, size_t len)
 {
         /* LAB 2 TODO 4 BEGIN */
+        BUG_ON(GET_VA_OFFSET_L3(va));
+        va -= GET_VA_OFFSET_L3(va);
+        len += GET_VA_OFFSET_L3(va);
 
+        // alloc order: 32123
+
+        // align to l2
+        for(; (s64)len > 0 && GET_VA_OFFSET_L2(va) != 0; len -= PAGE_SIZE){
+                unmap_one_lx_page(pgtbl, va, 3);
+                va += PAGE_SIZE;
+        }
+
+        // align to l1
+        // if len remaining is too small, don't alloc large page
+        for(; (s64)len > L2_BLOCK_SIZE/2 && GET_VA_OFFSET_L1(va) != 0; len -= L2_BLOCK_SIZE){
+                unmap_one_lx_page(pgtbl, va, 2);
+                va += L2_BLOCK_SIZE; 
+        }
+
+        // alloc l1
+        for(; (s64)len > L1_BLOCK_SIZE/2; len -= L1_BLOCK_SIZE){
+                unmap_one_lx_page(pgtbl, va, 1);
+                va += L1_BLOCK_SIZE; 
+        }
+
+        // remaining l2
+        for(; (s64)len > L2_BLOCK_SIZE/2; len -= L2_BLOCK_SIZE){
+                unmap_one_lx_page(pgtbl, va, 2);
+                va += L2_BLOCK_SIZE; 
+        }
+
+        // remaining l3
+        for(; (s64)len > 0; len -= PAGE_SIZE){
+                unmap_one_lx_page(pgtbl, va, 3);
+                va += PAGE_SIZE; 
+        }
+        return 0;
         /* LAB 2 TODO 4 END */
 }
 
